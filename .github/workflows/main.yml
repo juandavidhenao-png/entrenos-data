@@ -1,9 +1,9 @@
-name: Actualizar Entrenos y Biometría Full
+name: Actualizar Web de Entrenos
 
 on:
   schedule:
-    - cron: '0 13 * * *' # 13:00 UTC = 08:00 AM Colombia
-  workflow_dispatch: # Botón manual
+    - cron: '0 13 * * *' # 08:00 AM Colombia
+  workflow_dispatch:
 
 jobs:
   update-data:
@@ -14,15 +14,15 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Instalar Python y Librerías
+      - name: Instalar Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
-      
-      - name: Instalar Dependencias
+
+      - name: Instalar Librerías
         run: pip install pandas requests
 
-      - name: Descargar TODO (Actividades + Wellness)
+      - name: Descargar Data y Crear Web
         env:
           API_KEY: ${{ secrets.INTERVALS_API_KEY }}
           ID: ${{ secrets.INTERVALS_ID }}
@@ -33,52 +33,51 @@ jobs:
           import os
           from datetime import datetime, timedelta
 
-          # --- CONFIGURACIÓN ---
+          # --- CONFIG ---
           api_key = os.environ['API_KEY']
           athlete_id = os.environ['ID']
           auth = ('API_KEY', api_key)
           
-          # Fechas: Últimos 60 días hasta HOY
+          # Fechas: Últimos 60 días
           oldest = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
           newest = datetime.now().strftime('%Y-%m-%d')
 
-          print(f'Procesando datos desde {oldest} hasta {newest}...')
-
-          # --- 1. DESCARGAR ACTIVIDADES (ENTRENOS) ---
+          # 1. TRAER ACTIVIDADES
           url_act = f'https://intervals.icu/api/v1/athlete/{athlete_id}/activities?oldest={oldest}&newest={newest}'
-          resp_act = requests.get(url_act, auth=auth)
-          
-          if resp_act.status_code == 200:
-              data_act = resp_act.json()
-              df_act = pd.DataFrame(data_act)
-              # NO FILTRAMOS COLUMNAS: Guardamos TODO
-              df_act.to_csv('actividades.csv', index=False)
-              print(f'✅ Actividades guardadas: {len(df_act)} registros con {len(df_act.columns)} columnas.')
-          else:
-              print(f'❌ Error descargando Actividades: {resp_act.status_code}')
+          r_act = requests.get(url_act, auth=auth)
+          df_act = pd.DataFrame(r_act.json()) if r_act.status_code == 200 else pd.DataFrame()
 
-          # --- 2. DESCARGAR WELLNESS (BIOMETRÍA/SALUD) ---
-          # Esto garantiza tener HRV, Sueño, Peso, SpO2 incluso si no entrenaste
+          # 2. TRAER WELLNESS
           url_well = f'https://intervals.icu/api/v1/athlete/{athlete_id}/wellness?oldest={oldest}&newest={newest}'
-          resp_well = requests.get(url_well, auth=auth)
+          r_well = requests.get(url_well, auth=auth)
+          df_well = pd.DataFrame(r_well.json()) if r_well.status_code == 200 else pd.DataFrame()
 
-          if resp_well.status_code == 200:
-              data_well = resp_well.json()
-              df_well = pd.DataFrame(data_well)
-              # Guardamos TODO
-              df_well.to_csv('wellness.csv', index=False)
-              print(f'✅ Biometría guardada: {len(df_well)} registros con {len(df_well.columns)} métricas.')
-          else:
-              print(f'❌ Error descargando Wellness: {resp_well.status_code}')
+          # 3. GENERAR PÁGINA WEB (HTML)
+          # Unimos todo en un HTML simple que el bot SI puede leer
+          html_content = f'''
+          <html>
+          <head><title>Entrenos Data</title></head>
+          <body>
+            <h1>Última Actualización: {newest}</h1>
+            <h2>Biometría (Wellness)</h2>
+            {df_well.to_html(index=False, border=1) if not df_well.empty else 'No data'}
+            <br><hr><br>
+            <h2>Entrenamientos (Activities)</h2>
+            {df_act.to_html(index=False, border=1) if not df_act.empty else 'No data'}
+          </body>
+          </html>
+          '''
+          
+          with open('index.html', 'w') as f:
+              f.write(html_content)
+          
+          print('✅ Página Web generada correctamente.')
           "
 
-      - name: Subir cambios a GitHub
+      - name: Publicar cambios
         run: |
           git config --global user.name 'IntervalsBot'
           git config --global user.email 'bot@noreply.github.com'
-          git add activities.csv wellness.csv || true
-          # El '|| true' evita error si los nombres cambiaron o es la primera vez
-          git add actividades.csv 2>/dev/null || true
-          git add wellness.csv 2>/dev/null || true
-          git commit -m "Reporte Diario Full: $(date +'%Y-%m-%d')" || exit 0
+          git add index.html
+          git commit -m "Web Update: $(date +'%Y-%m-%d')" || exit 0
           git push
