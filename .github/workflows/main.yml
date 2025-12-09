@@ -39,7 +39,7 @@ jobs:
           auth = ('API_KEY', api_key)
           
           # Fechas: Últimos 60 días
-          oldest = (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d')
+          oldest = (datetime.now() - timedelta(days=1000)).strftime('%Y-%m-%d')
           newest = datetime.now().strftime('%Y-%m-%d')
 
           # 1. TRAER ACTIVIDADES
